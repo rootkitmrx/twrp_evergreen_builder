@@ -9,14 +9,11 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      # Checkout
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      # Free Disk Space
+      # Disk Cleanup
       - name: Maximize Disk Space
         run: |
-          echo "Disk before cleanup:"
+          echo "Before cleanup:"
           df -h
 
           sudo rm -rf /usr/share/dotnet
@@ -29,8 +26,28 @@ jobs:
           sudo apt-get clean
           sudo docker system prune -af || true
 
-          echo "Disk after cleanup:"
+          echo "After cleanup:"
           df -h
+
+      # Select Build Location
+      - name: Select Build Directory
+        run: |
+          BUILD_DIR="/mnt/twrp"
+
+          mkdir -p /mnt
+
+          AVAILABLE=$(df -BG /mnt | awk 'NR==2 {print $4}' | tr -d 'G')
+
+          if [ "$AVAILABLE" -lt 70 ]; then
+            BUILD_DIR="$HOME/twrp"
+          fi
+
+          mkdir -p "$BUILD_DIR"
+
+          echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
+
+          echo "Selected build directory: $BUILD_DIR"
+          df -h "$BUILD_DIR"
 
       # Swap
       - name: Set up Swap Space
@@ -69,6 +86,9 @@ jobs:
             libtinfo5 \
             openjdk-11-jdk
 
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+
       # Repo Tool
       - name: Install Repo Tool
         run: |
@@ -97,16 +117,13 @@ jobs:
           git config --global --add \
             url."https://github.com/".insteadOf "git://github.com/"
 
-          git config --global --add \
-            url."https://".insteadOf "git://"
-
           git config --global http.postBuffer 524288000
 
       # Initialize Repo
       - name: Initialize Repo
         run: |
-          mkdir -p "$HOME/twrp"
-          cd "$HOME/twrp"
+          mkdir -p "$BUILD_DIR"
+          cd "$BUILD_DIR"
 
           repo init \
             -u https://github.com/omnirom/android.git \
@@ -118,7 +135,7 @@ jobs:
       - name: Sync Sources
         timeout-minutes: 180
         run: |
-          cd "$HOME/twrp"
+          cd "$BUILD_DIR"
 
           export GIT_TERMINAL_PROMPT=0
           export PYTHONUNBUFFERED=1
@@ -132,18 +149,18 @@ jobs:
             --fail-fast \
             -v
 
-      # Clone Device Tree
+      # Device Tree
       - name: Clone Device Tree
         run: |
-          cd "$HOME/twrp"
+          cd "$BUILD_DIR"
 
           git clone \
             https://github.com/mmtrt/android_device_xiaomi_evergreen.git \
             -b twrp-12.1 \
             device/xiaomi/evergreen
 
-      # Check Disk
-      - name: Check Disk Space
+      # Resource Check
+      - name: Check Resources
         run: |
           echo "Disk:"
           df -h
@@ -151,12 +168,19 @@ jobs:
           echo "Memory:"
           free -h
 
+          echo "CPU:"
+          nproc
+
       # Build
       - name: Build Recovery
         run: |
-          cd "$HOME/twrp"
+          cd "$BUILD_DIR"
 
           export ALLOW_MISSING_DEPENDENCIES=true
+          export USE_CCACHE=1
+          export CCACHE_DIR="$HOME/.ccache"
+
+          ccache -M 5G
 
           source build/envsetup.sh
 
@@ -170,7 +194,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: recovery-evergreen
-          path: /home/runner/twrp/out/target/product/evergreen/recovery.img
+          path: ${{ env.BUILD_DIR }}/out/target/product/evergreen/recovery.img
           if-no-files-found: error
           compression-level: 0
 
@@ -181,12 +205,16 @@ jobs:
         with:
           name: evergreen-build-logs
           path: |
-            /home/runner/twrp/out/error.log
+            ${{ env.BUILD_DIR }}/out/error.log
+            ${{ env.BUILD_DIR }}/out/verbose.log
           if-no-files-found: ignore
 
-      # Final Disk Info
+      # Final Disk Information
       - name: Disk Information
         if: always()
         run: |
           echo "Final disk usage:"
           df -h
+
+          echo "Memory:"
+          free -h
