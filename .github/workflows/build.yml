@@ -6,16 +6,39 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 360
 
     steps:
+      # Checkout
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Free Disk Space
+      - name: Maximize Disk Space
+        run: |
+          echo "Disk before cleanup:"
+          df -h
+
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+
+          sudo apt-get clean
+          sudo docker system prune -af || true
+
+          echo "Disk after cleanup:"
+          df -h
+
+      # Swap
       - name: Set up Swap Space
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 12
 
+      # Dependencies
       - name: Install Dependencies
         run: |
           sudo apt-get update
@@ -46,6 +69,7 @@ jobs:
             libtinfo5 \
             openjdk-11-jdk
 
+      # Repo Tool
       - name: Install Repo Tool
         run: |
           mkdir -p "$HOME/bin"
@@ -58,12 +82,12 @@ jobs:
 
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
+      # Git Configuration
       - name: Configure Git
         run: |
           git config --global user.name "Amil"
           git config --global user.email "amil@example.com"
 
-          # Convert GitHub SSH URLs to HTTPS
           git config --global --add \
             url."https://github.com/".insteadOf "git@github.com:"
 
@@ -76,6 +100,9 @@ jobs:
           git config --global --add \
             url."https://".insteadOf "git://"
 
+          git config --global http.postBuffer 524288000
+
+      # Initialize Repo
       - name: Initialize Repo
         run: |
           mkdir -p "$HOME/twrp"
@@ -87,17 +114,25 @@ jobs:
             --depth=1 \
             --manifest-branch=android-12.1
 
+      # Sync Sources
       - name: Sync Sources
+        timeout-minutes: 180
         run: |
           cd "$HOME/twrp"
+
+          export GIT_TERMINAL_PROMPT=0
+          export PYTHONUNBUFFERED=1
 
           repo sync \
             -c \
             -j4 \
             --force-sync \
             --no-clone-bundle \
-            --no-tags
+            --no-tags \
+            --fail-fast \
+            -v
 
+      # Clone Device Tree
       - name: Clone Device Tree
         run: |
           cd "$HOME/twrp"
@@ -107,6 +142,16 @@ jobs:
             -b twrp-12.1 \
             device/xiaomi/evergreen
 
+      # Check Disk
+      - name: Check Disk Space
+        run: |
+          echo "Disk:"
+          df -h
+
+          echo "Memory:"
+          free -h
+
+      # Build
       - name: Build Recovery
         run: |
           cd "$HOME/twrp"
@@ -119,6 +164,7 @@ jobs:
 
           mka recoveryimage -j4
 
+      # Upload Recovery
       - name: Upload Recovery Image
         if: success()
         uses: actions/upload-artifact@v4
@@ -128,6 +174,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
+      # Upload Logs
       - name: Upload Build Logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -135,5 +182,11 @@ jobs:
           name: evergreen-build-logs
           path: |
             /home/runner/twrp/out/error.log
-            /home/runner/twrp/.repo/
           if-no-files-found: ignore
+
+      # Final Disk Info
+      - name: Disk Information
+        if: always()
+        run: |
+          echo "Final disk usage:"
+          df -h
