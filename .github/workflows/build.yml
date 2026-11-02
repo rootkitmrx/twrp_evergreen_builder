@@ -10,7 +10,7 @@ jobs:
 
     steps:
 
-      # Cleanup
+      # Disk Cleanup
       - name: Maximize Disk Space
         run: |
           echo "Disk before cleanup:"
@@ -29,16 +29,16 @@ jobs:
           echo "Disk after cleanup:"
           df -h
 
-      # Build Directory
+      # Select Build Directory
       - name: Select Build Directory
         run: |
-          BUILD_DIR="$HOME/twrp"
+          mkdir -p "$HOME/twrp"
 
-          mkdir -p "$BUILD_DIR"
+          BUILD_DIR="$HOME/twrp"
 
           echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
 
-          echo "Build directory: $BUILD_DIR"
+          echo "Selected: $BUILD_DIR"
           df -h "$BUILD_DIR"
 
       # Swap
@@ -123,7 +123,7 @@ jobs:
             --depth=1 \
             --manifest-branch=android-12.1
 
-      # Fix OmniROM Repositories
+      # Fix Manifest
       - name: Fix OmniROM Manifest
         run: |
           cd "$BUILD_DIR"
@@ -133,19 +133,19 @@ jobs:
           BASE_URL="https://github.com/omnirom/android_frameworks_base_old.git"
           CORE_URL="https://github.com/omnirom/android_system_core_old.git"
 
-          echo "Checking frameworks/base branch..."
+          echo "Checking frameworks/base..."
 
           if ! git ls-remote --exit-code --heads \
             "$BASE_URL" refs/heads/android-12.1; then
-            echo "::error::android-12.1 branch not found in android_frameworks_base_old"
+            echo "::error::frameworks/base android-12.1 branch unavailable"
             exit 1
           fi
 
-          echo "Checking system/core branch..."
+          echo "Checking system/core..."
 
           if ! git ls-remote --exit-code --heads \
             "$CORE_URL" refs/heads/android-12.1; then
-            echo "::error::android-12.1 branch not found in android_system_core_old"
+            echo "::error::system/core android-12.1 branch unavailable"
             exit 1
           fi
 
@@ -169,10 +169,12 @@ jobs:
                   remote="omnirom"
                   revision="android-12.1" />
 
+              <remove-project name="android_packages_apps_OmniControl" />
+
           </manifest>
           EOF
 
-          echo "Local manifest created successfully."
+          echo "Local manifest fixes created."
 
       # Sync Sources
       - name: Sync Sources
@@ -202,7 +204,7 @@ jobs:
             -b twrp-12.1 \
             device/xiaomi/evergreen
 
-      # Disk Check
+      # Resource Check
       - name: Check Resources
         run: |
           echo "Disk:"
@@ -232,19 +234,20 @@ jobs:
           mka recoveryimage -j4
 
       # Verify Recovery
-      - name: Verify Recovery Image
+      - name: Verify Recovery
         if: success()
         run: |
           IMAGE="$BUILD_DIR/out/target/product/evergreen/recovery.img"
 
           if [ ! -f "$IMAGE" ]; then
-            echo "::error::recovery.img not found!"
+            echo "::error::recovery.img not found"
             exit 1
           fi
 
-          echo "Recovery image created:"
+          echo "Recovery image:"
           ls -lh "$IMAGE"
 
+          echo "SHA256:"
           sha256sum "$IMAGE"
 
       # Upload Recovery
