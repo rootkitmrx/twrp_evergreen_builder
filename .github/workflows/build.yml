@@ -10,7 +10,7 @@ jobs:
 
     steps:
 
-      # Disk Cleanup
+      # Cleanup
       - name: Maximize Disk Space
         run: |
           echo "Disk before cleanup:"
@@ -29,35 +29,20 @@ jobs:
           echo "Disk after cleanup:"
           df -h
 
-      # Select Build Directory
+      # Build Directory
       - name: Select Build Directory
         run: |
-          mkdir -p "$HOME/twrp"
-
-          sudo mkdir -p /mnt/twrp
-          sudo chown "$USER":"$(id -gn)" /mnt/twrp
-
-          HOME_FREE=$(df -BG "$HOME" | awk 'NR==2 {print $4}' | tr -d 'G')
-          MNT_FREE=$(df -BG /mnt | awk 'NR==2 {print $4}' | tr -d 'G')
-
-          echo "HOME free: ${HOME_FREE} GB"
-          echo "MNT free: ${MNT_FREE} GB"
-
-          if [ "$MNT_FREE" -gt "$HOME_FREE" ]; then
-            BUILD_DIR="/mnt/twrp"
-          else
-            BUILD_DIR="$HOME/twrp"
-          fi
+          BUILD_DIR="$HOME/twrp"
 
           mkdir -p "$BUILD_DIR"
 
           echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
 
-          echo "Selected directory: $BUILD_DIR"
+          echo "Build directory: $BUILD_DIR"
           df -h "$BUILD_DIR"
 
       # Swap
-      - name: Set up Swap Space
+      - name: Setup Swap
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 12
@@ -68,7 +53,8 @@ jobs:
           sudo apt-get update
 
           sudo apt-get install -y \
-            git-core \
+            git \
+            git-lfs \
             python3 \
             python-is-python3 \
             build-essential \
@@ -137,6 +123,57 @@ jobs:
             --depth=1 \
             --manifest-branch=android-12.1
 
+      # Fix OmniROM Repositories
+      - name: Fix OmniROM Manifest
+        run: |
+          cd "$BUILD_DIR"
+
+          mkdir -p .repo/local_manifests
+
+          BASE_URL="https://github.com/omnirom/android_frameworks_base_old.git"
+          CORE_URL="https://github.com/omnirom/android_system_core_old.git"
+
+          echo "Checking frameworks/base branch..."
+
+          if ! git ls-remote --exit-code --heads \
+            "$BASE_URL" refs/heads/android-12.1; then
+            echo "::error::android-12.1 branch not found in android_frameworks_base_old"
+            exit 1
+          fi
+
+          echo "Checking system/core branch..."
+
+          if ! git ls-remote --exit-code --heads \
+            "$CORE_URL" refs/heads/android-12.1; then
+            echo "::error::android-12.1 branch not found in android_system_core_old"
+            exit 1
+          fi
+
+          cat > .repo/local_manifests/omni-fixes.xml <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <manifest>
+
+              <remove-project name="android_frameworks_base" />
+
+              <project
+                  path="frameworks/base"
+                  name="android_frameworks_base_old"
+                  remote="omnirom"
+                  revision="android-12.1" />
+
+              <remove-project name="android_system_core" />
+
+              <project
+                  path="system/core"
+                  name="android_system_core_old"
+                  remote="omnirom"
+                  revision="android-12.1" />
+
+          </manifest>
+          EOF
+
+          echo "Local manifest created successfully."
+
       # Sync Sources
       - name: Sync Sources
         timeout-minutes: 180
@@ -155,7 +192,7 @@ jobs:
             --fail-fast \
             -v
 
-      # Clone Device Tree
+      # Device Tree
       - name: Clone Device Tree
         run: |
           cd "$BUILD_DIR"
@@ -165,7 +202,7 @@ jobs:
             -b twrp-12.1 \
             device/xiaomi/evergreen
 
-      # Resource Check
+      # Disk Check
       - name: Check Resources
         run: |
           echo "Disk:"
@@ -194,12 +231,28 @@ jobs:
 
           mka recoveryimage -j4
 
+      # Verify Recovery
+      - name: Verify Recovery Image
+        if: success()
+        run: |
+          IMAGE="$BUILD_DIR/out/target/product/evergreen/recovery.img"
+
+          if [ ! -f "$IMAGE" ]; then
+            echo "::error::recovery.img not found!"
+            exit 1
+          fi
+
+          echo "Recovery image created:"
+          ls -lh "$IMAGE"
+
+          sha256sum "$IMAGE"
+
       # Upload Recovery
-      - name: Upload Recovery Image
+      - name: Upload Recovery
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: recovery-evergreen
+          name: TWRP-Evergreen
           path: ${{ env.BUILD_DIR }}/out/target/product/evergreen/recovery.img
           if-no-files-found: error
           compression-level: 0
@@ -209,17 +262,17 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: evergreen-build-logs
+          name: Evergreen-Build-Logs
           path: |
             ${{ env.BUILD_DIR }}/out/error.log
             ${{ env.BUILD_DIR }}/out/verbose.log
           if-no-files-found: ignore
 
-      # Final Disk Information
-      - name: Disk Information
+      # Final Information
+      - name: Final Disk Information
         if: always()
         run: |
-          echo "Final disk usage:"
+          echo "Final disk:"
           df -h
 
           echo "Memory:"
