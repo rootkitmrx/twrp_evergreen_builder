@@ -13,7 +13,7 @@ jobs:
       # 1. Disk Cleanup
       - name: Maximize Disk Space
         run: |
-          echo "Before cleanup:"
+          echo "Disk before cleanup:"
           df -h
 
           sudo rm -rf /usr/share/dotnet
@@ -26,7 +26,7 @@ jobs:
           sudo apt-get clean
           sudo docker system prune -af || true
 
-          echo "After cleanup:"
+          echo "Disk after cleanup:"
           df -h
 
       # 2. Build Directory
@@ -38,7 +38,7 @@ jobs:
 
           echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
 
-          echo "Selected: $BUILD_DIR"
+          echo "Selected directory: $BUILD_DIR"
           df -h "$BUILD_DIR"
 
       # 3. Swap
@@ -153,7 +153,6 @@ jobs:
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
 
-              <!-- Frameworks Base -->
               <remove-project name="android_frameworks_base" />
 
               <project
@@ -162,7 +161,6 @@ jobs:
                   remote="omnirom"
                   revision="android-12.1" />
 
-              <!-- System Core -->
               <remove-project name="android_system_core" />
 
               <project
@@ -171,17 +169,64 @@ jobs:
                   remote="omnirom"
                   revision="android-12.1" />
 
-              <!-- Remove Unnecessary Applications -->
-              <remove-project name="android_packages_apps_OmniControl" />
-
-              <remove-project name="android_packages_apps_OmniRemote" />
-
           </manifest>
           EOF
 
-          echo "Manifest fixes completed."
+          echo "Base manifest fixes completed."
 
-      # 9. Sync Sources
+      # 9. Automatically Remove Optional Omni Applications
+      - name: Remove Optional Omni Applications
+        run: |
+          cd "$BUILD_DIR"
+
+          mkdir -p .repo/local_manifests
+
+          repo manifest -o /tmp/full-manifest.xml
+
+          python3 <<'PY'
+          import xml.etree.ElementTree as ET
+
+          tree = ET.parse("/tmp/full-manifest.xml")
+          root = tree.getroot()
+
+          projects = set()
+
+          for project in root.iter("project"):
+              name = project.get("name", "")
+
+              if name.startswith("android_packages_apps_Omni"):
+                  projects.add(name)
+
+          manifest = ET.Element("manifest")
+
+          for name in sorted(projects):
+              ET.SubElement(
+                  manifest,
+                  "remove-project",
+                  {"name": name}
+              )
+
+          ET.indent(manifest, space="    ")
+
+          output = ".repo/local_manifests/remove-omni-apps.xml"
+
+          ET.ElementTree(manifest).write(
+              output,
+              encoding="UTF-8",
+              xml_declaration=True
+          )
+
+          print("\nRemoved optional Omni applications:")
+
+          for name in sorted(projects):
+              print(" -", name)
+
+          print("\nTotal removed:", len(projects))
+          PY
+
+          echo "Optional Omni applications removed."
+
+      # 10. Sync Sources
       - name: Sync Sources
         timeout-minutes: 180
         run: |
@@ -199,7 +244,7 @@ jobs:
             --fail-fast \
             -v
 
-      # 10. Device Tree
+      # 11. Clone Device Tree
       - name: Clone Device Tree
         run: |
           cd "$BUILD_DIR"
@@ -209,7 +254,7 @@ jobs:
             -b twrp-12.1 \
             device/xiaomi/evergreen
 
-      # 11. Resource Check
+      # 12. Check Resources
       - name: Check Resources
         run: |
           echo "Disk:"
@@ -221,7 +266,7 @@ jobs:
           echo "CPU:"
           nproc
 
-      # 12. Build Recovery
+      # 13. Build Recovery
       - name: Build Recovery
         run: |
           cd "$BUILD_DIR"
@@ -238,7 +283,7 @@ jobs:
 
           mka recoveryimage -j4
 
-      # 13. Verify Recovery
+      # 14. Verify Recovery
       - name: Verify Recovery
         if: success()
         run: |
@@ -255,7 +300,7 @@ jobs:
           echo "SHA256:"
           sha256sum "$IMAGE"
 
-      # 14. Upload Recovery
+      # 15. Upload Recovery
       - name: Upload Recovery
         if: success()
         uses: actions/upload-artifact@v4
@@ -265,7 +310,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      # 15. Upload Logs
+      # 16. Upload Logs
       - name: Upload Build Logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -276,7 +321,7 @@ jobs:
             ${{ env.BUILD_DIR }}/out/verbose.log
           if-no-files-found: ignore
 
-      # 16. Final Information
+      # 17. Final Information
       - name: Final Disk Information
         if: always()
         run: |
