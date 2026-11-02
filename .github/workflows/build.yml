@@ -28,14 +28,16 @@ jobs:
         chmod a+x ~/bin/repo
         sudo ln -s ~/bin/repo /usr/local/bin/repo
 
-    - name: Initialize Repo and Sync TWRP 12.1
+- name: Initialize Repo and Sync TWRP 12.1
       run: |
         mkdir -p ~/twrp
         cd ~/twrp
         git config --global user.name "Amil"
         git config --global user.email "amil@example.com"
-        git config --global url."https://github.com/".insteadOf git@github.com:
-        repo init -u https://github.com/omnirom/android.git -b android-12.1 --depth=1
+        git config --url."https://github.com/".insteadOf git@github.com:
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git config --global url."https://".insteadOf "git://"
+        repo init -u https://github.com/omnirom/android.git -b android-12.1 --depth=1 --manifest-url=https://github.com/omnirom/android.git
         repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
 
     - name: Clone Device Tree
