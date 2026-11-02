@@ -27,7 +27,8 @@ jobs:
         curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
         chmod a+x ~/bin/repo
         sudo ln -s ~/bin/repo /usr/local/bin/repo
-
+        
+git config --global url."https://github.com/".insteadOf git@github.com:
     - name: Initialize Repo and Sync TWRP 12.1
       run: |
         mkdir -p ~/twrp
