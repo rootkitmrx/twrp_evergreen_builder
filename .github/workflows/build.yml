@@ -10,10 +10,10 @@ jobs:
 
     steps:
 
-      # Disk Cleanup
+      # 1. Disk Cleanup
       - name: Maximize Disk Space
         run: |
-          echo "Disk before cleanup:"
+          echo "Before cleanup:"
           df -h
 
           sudo rm -rf /usr/share/dotnet
@@ -26,28 +26,28 @@ jobs:
           sudo apt-get clean
           sudo docker system prune -af || true
 
-          echo "Disk after cleanup:"
+          echo "After cleanup:"
           df -h
 
-      # Select Build Directory
+      # 2. Build Directory
       - name: Select Build Directory
         run: |
-          mkdir -p "$HOME/twrp"
-
           BUILD_DIR="$HOME/twrp"
+
+          mkdir -p "$BUILD_DIR"
 
           echo "BUILD_DIR=$BUILD_DIR" >> "$GITHUB_ENV"
 
           echo "Selected: $BUILD_DIR"
           df -h "$BUILD_DIR"
 
-      # Swap
+      # 3. Swap
       - name: Setup Swap
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 12
 
-      # Dependencies
+      # 4. Dependencies
       - name: Install Dependencies
         run: |
           sudo apt-get update
@@ -82,7 +82,7 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 
-      # Repo Tool
+      # 5. Repo Tool
       - name: Install Repo Tool
         run: |
           mkdir -p "$HOME/bin"
@@ -95,7 +95,7 @@ jobs:
 
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
-      # Git Configuration
+      # 6. Git Configuration
       - name: Configure Git
         run: |
           git config --global user.name "Amil"
@@ -112,7 +112,7 @@ jobs:
 
           git config --global http.postBuffer 524288000
 
-      # Initialize Repo
+      # 7. Initialize Repo
       - name: Initialize Repo
         run: |
           cd "$BUILD_DIR"
@@ -123,7 +123,7 @@ jobs:
             --depth=1 \
             --manifest-branch=android-12.1
 
-      # Fix Manifest
+      # 8. Fix OmniROM Manifest
       - name: Fix OmniROM Manifest
         run: |
           cd "$BUILD_DIR"
@@ -137,7 +137,7 @@ jobs:
 
           if ! git ls-remote --exit-code --heads \
             "$BASE_URL" refs/heads/android-12.1; then
-            echo "::error::frameworks/base android-12.1 branch unavailable"
+            echo "::error::frameworks/base branch unavailable"
             exit 1
           fi
 
@@ -145,7 +145,7 @@ jobs:
 
           if ! git ls-remote --exit-code --heads \
             "$CORE_URL" refs/heads/android-12.1; then
-            echo "::error::system/core android-12.1 branch unavailable"
+            echo "::error::system/core branch unavailable"
             exit 1
           fi
 
@@ -153,6 +153,7 @@ jobs:
           <?xml version="1.0" encoding="UTF-8"?>
           <manifest>
 
+              <!-- Frameworks Base -->
               <remove-project name="android_frameworks_base" />
 
               <project
@@ -161,6 +162,7 @@ jobs:
                   remote="omnirom"
                   revision="android-12.1" />
 
+              <!-- System Core -->
               <remove-project name="android_system_core" />
 
               <project
@@ -169,14 +171,17 @@ jobs:
                   remote="omnirom"
                   revision="android-12.1" />
 
+              <!-- Remove Unnecessary Applications -->
               <remove-project name="android_packages_apps_OmniControl" />
+
+              <remove-project name="android_packages_apps_OmniRemote" />
 
           </manifest>
           EOF
 
-          echo "Local manifest fixes created."
+          echo "Manifest fixes completed."
 
-      # Sync Sources
+      # 9. Sync Sources
       - name: Sync Sources
         timeout-minutes: 180
         run: |
@@ -194,7 +199,7 @@ jobs:
             --fail-fast \
             -v
 
-      # Device Tree
+      # 10. Device Tree
       - name: Clone Device Tree
         run: |
           cd "$BUILD_DIR"
@@ -204,7 +209,7 @@ jobs:
             -b twrp-12.1 \
             device/xiaomi/evergreen
 
-      # Resource Check
+      # 11. Resource Check
       - name: Check Resources
         run: |
           echo "Disk:"
@@ -216,7 +221,7 @@ jobs:
           echo "CPU:"
           nproc
 
-      # Build Recovery
+      # 12. Build Recovery
       - name: Build Recovery
         run: |
           cd "$BUILD_DIR"
@@ -233,14 +238,14 @@ jobs:
 
           mka recoveryimage -j4
 
-      # Verify Recovery
+      # 13. Verify Recovery
       - name: Verify Recovery
         if: success()
         run: |
           IMAGE="$BUILD_DIR/out/target/product/evergreen/recovery.img"
 
           if [ ! -f "$IMAGE" ]; then
-            echo "::error::recovery.img not found"
+            echo "::error::recovery.img not found!"
             exit 1
           fi
 
@@ -250,7 +255,7 @@ jobs:
           echo "SHA256:"
           sha256sum "$IMAGE"
 
-      # Upload Recovery
+      # 14. Upload Recovery
       - name: Upload Recovery
         if: success()
         uses: actions/upload-artifact@v4
@@ -260,7 +265,7 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-      # Upload Logs
+      # 15. Upload Logs
       - name: Upload Build Logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -271,7 +276,7 @@ jobs:
             ${{ env.BUILD_DIR }}/out/verbose.log
           if-no-files-found: ignore
 
-      # Final Information
+      # 16. Final Information
       - name: Final Disk Information
         if: always()
         run: |
