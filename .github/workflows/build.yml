@@ -8,52 +8,132 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Set up Swap Space
-      uses: pierotofy/set-swap-space@master
-      with:
-        swap-size-gb: 12
+      - name: Set up Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 12
 
-    - name: Install Dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y git python3 build-essential flex bison gperf zlib1g-dev liblz4-tool libncurses5-dev libssl-dev libxml2 libxml2-utils xsltproc unzip wget bc rsync
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
 
-    - name: Install Repo Tool
-      run: |
-        mkdir -p ~/bin
-        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-        chmod a+x ~/bin/repo
-        sudo ln -s ~/bin/repo /usr/local/bin/repo
+          sudo apt-get install -y \
+            git-core \
+            python3 \
+            python-is-python3 \
+            build-essential \
+            flex \
+            bison \
+            gperf \
+            zlib1g-dev \
+            liblz4-tool \
+            libncurses5-dev \
+            libssl-dev \
+            libxml2 \
+            libxml2-utils \
+            xsltproc \
+            unzip \
+            wget \
+            curl \
+            bc \
+            rsync \
+            ccache \
+            zip \
+            libelf-dev \
+            libtinfo5 \
+            openjdk-11-jdk
 
-    - name: Initialize Repo and Sync TWRP 12.1
-      run: |
-        mkdir -p ~/twrp
-        cd ~/twrp
-        git config --global user.name "Amil"
-        git config --global user.email "amil@example.com"
-        git config --global url."https://github.com/".insteadOf git@github.com:
-        git config --global url."https://".insteadOf "git://"
-        repo init -u https://github.com/omnirom/android.git -b android-12.1 --depth=1 --manifest-branch=android-12.1
-        repo sync -c -j4 --force-sync --no-clone-bundle --no-tags
+      - name: Install Repo Tool
+        run: |
+          mkdir -p "$HOME/bin"
 
-    - name: Clone Device Tree
-      run: |
-        cd ~/twrp
-        git clone https://github.com/mmtrt/android_device_xiaomi_evergreen.git -b twrp-12.1 device/xiaomi/evergreen
+          curl -fsSL \
+            https://storage.googleapis.com/git-repo-downloads/repo \
+            -o "$HOME/bin/repo"
 
-    - name: Start Building Recovery
-      run: |
-        cd ~/twrp
-        export ALLOW_MISSING_DEPENDENCIES=true
-        source build/envsetup.sh
-        lunch omni_evergreen-userdebug
-        mka recoveryimage
+          chmod +x "$HOME/bin/repo"
 
-    - name: Upload Recovery Image
-      uses: actions/upload-artifact@v4
-      with:
-        name: recovery-evergreen
-        path: ~/twrp/out/target/product/evergreen/recovery.img
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "Amil"
+          git config --global user.email "amil@example.com"
+
+          # Convert GitHub SSH URLs to HTTPS
+          git config --global --add \
+            url."https://github.com/".insteadOf "git@github.com:"
+
+          git config --global --add \
+            url."https://github.com/".insteadOf "ssh://git@github.com/"
+
+          git config --global --add \
+            url."https://github.com/".insteadOf "git://github.com/"
+
+          git config --global --add \
+            url."https://".insteadOf "git://"
+
+      - name: Initialize Repo
+        run: |
+          mkdir -p "$HOME/twrp"
+          cd "$HOME/twrp"
+
+          repo init \
+            -u https://github.com/omnirom/android.git \
+            -b android-12.1 \
+            --depth=1 \
+            --manifest-branch=android-12.1
+
+      - name: Sync Sources
+        run: |
+          cd "$HOME/twrp"
+
+          repo sync \
+            -c \
+            -j4 \
+            --force-sync \
+            --no-clone-bundle \
+            --no-tags
+
+      - name: Clone Device Tree
+        run: |
+          cd "$HOME/twrp"
+
+          git clone \
+            https://github.com/mmtrt/android_device_xiaomi_evergreen.git \
+            -b twrp-12.1 \
+            device/xiaomi/evergreen
+
+      - name: Build Recovery
+        run: |
+          cd "$HOME/twrp"
+
+          export ALLOW_MISSING_DEPENDENCIES=true
+
+          source build/envsetup.sh
+
+          lunch omni_evergreen-userdebug
+
+          mka recoveryimage -j4
+
+      - name: Upload Recovery Image
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recovery-evergreen
+          path: /home/runner/twrp/out/target/product/evergreen/recovery.img
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload Build Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evergreen-build-logs
+          path: |
+            /home/runner/twrp/out/error.log
+            /home/runner/twrp/.repo/
+          if-no-files-found: ignore
